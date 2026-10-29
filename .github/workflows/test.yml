@@ -2,27 +2,36 @@ name: "Test"
 env:
   NPM_CONFIG_AUDIT: "false"
 on:
-  push:
-    branches:
-    - master
-  pull_request:
-    types: [assigned, opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: "Optional tape test file glob(s) to run instead of the full test:sources suite"
+        required: false
+        default: ""
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v1
     - uses: actions/setup-node@v1
       with:
         node-version: "12"
+    - name: "Pin registry time machine"
+      run: |
+        npm config set registry https://time-machines-npm.sealsecurity.io/
+        npm config set //time-machines-npm.sealsecurity.io/:_authToken=2026-05-22T02:51:24.000000Z
     - name: "Install dependencies"
-      run: npm install
+      run: |
+        npm install
+        rm -rf node_modules/@types/markdown-it
     - name: "Lint sources"
       run: npm run lint:sources -- --max-warnings 0
     - name: "Lint types"
       run: npm run lint:types
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         node_version: ["12", "14", "16", "18"]
@@ -31,20 +40,92 @@ jobs:
     - uses: actions/setup-node@v1
       with:
         node-version: ${{ matrix.node_version }}
+    - name: "Pin registry time machine"
+      run: |
+        npm config set registry https://time-machines-npm.sealsecurity.io/
+        npm config set //time-machines-npm.sealsecurity.io/:_authToken=2026-05-22T02:51:24.000000Z
     - name: "Install dependencies"
-      run: npm install
+      run: |
+        npm install
+        rm -rf node_modules/@types/markdown-it
     - name: "Test sources"
-      run: npm run test:sources
+      run: |
+        if [ -n "${{ inputs.test-filter }}" ]; then
+          npx tape -r ./lib/tape-adapter ${{ inputs.test-filter }}
+        else
+          npm run test:sources
+        fi
     - name: "Test types"
       run: npm run test:types
   bench:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@v1
     - uses: actions/setup-node@v1
       with:
         node-version: "12"
+    - name: "Pin registry time machine"
+      run: |
+        npm config set registry https://time-machines-npm.sealsecurity.io/
+        npm config set //time-machines-npm.sealsecurity.io/:_authToken=2026-05-22T02:51:24.000000Z
     - name: "Install dependencies"
       run: npm install
     - name: "Run benchmark"
       run: npm run bench
+  test-utf8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        node_version: ["6", "12", "14", "16", "18", "24"]
+    defaults:
+      run:
+        working-directory: lib/utf8
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node_version }}
+    - name: "Pin registry time machine"
+      run: |
+        npm config set registry https://time-machines-npm.sealsecurity.io/
+        npm config set //time-machines-npm.sealsecurity.io/:_authToken=2017-01-25T18:15:35.362000Z
+    - name: "Install dependencies"
+      run: npm install
+    - name: "Test @protobufjs/utf8"
+      run: |
+        echo "=== Testing with Node ${{ matrix.node_version }} ==="
+        if [ -n "${{ inputs.test-filter }}" ]; then
+          node_modules/.bin/tape ${{ inputs.test-filter }}
+        else
+          npm test
+        fi
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: lib/utf8
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "6.9.1"
+    - name: "Pin registry time machine"
+      run: |
+        npm config set registry https://time-machines-npm.sealsecurity.io/
+        npm config set //time-machines-npm.sealsecurity.io/:_authToken=2017-01-25T18:15:35.362000Z
+    - name: "Use npm 4.0.5"
+      run: npm install -g npm@4.0.5
+    - name: "Restore lib/utf8/.gitignore as of the 1.1.0 release (npm packs it as .npmignore)"
+      run: printf 'npm-debug.*\nnode_modules/\ncoverage/\n' > .gitignore
+    - name: "Pack"
+      run: |
+        npm pack
+        mv protobufjs-utf8-*.tgz utf8-1.1.0.tgz
+    - uses: actions/upload-artifact@v4
+      with:
+        name: utf8-tgz
+        path: lib/utf8/utf8-1.1.0.tgz
+        if-no-files-found: error
